@@ -1,14 +1,18 @@
+#Author: Daniyar Boztayev
+#A simple program to open websites with hand gestures.
+
 import cv2
 import numpy as np
 import pyautogui
 import webbrowser
+import time
 
 background = None
 hand = None
 frames_elapsed = 0
 CALIBRATION_TIME = 30
-BG_WEIGHT = 0.5
-OBJ_THRESHOLD = 18
+BG_WEIGHT = 1
+OBJ_THRESHOLD = 32
 gesture_list = []
 
 class HandData:
@@ -21,6 +25,8 @@ class HandData:
         self.fingers = 0
         self.gestureList = gesture_list
         self.isInFrame = False
+        self.last_finger_count = None
+        self.finger_count_start_time = 0
 
     def update(self, top, bottom, left, right):
         self.top = top
@@ -101,14 +107,22 @@ def get_hand_data(thresholded_image, segmented_image):
     if frames_elapsed % 12 == 0:
         hand.fingers = most_frequent(hand.gestureList)
         hand.gestureList.clear()
-        perform_task(hand.fingers)
+
+        finger_consistency(hand, hand.fingers)
 
 def count_fingers(thresholded_image):
     line_height = int(hand.top[1] + (0.2 * (hand.bottom[1] - hand.top[1])))
 
-    line = np.zeros(thresholded_image.shape[:2], dtype=int)
-    cv2.line(line, (thresholded_image.shape[1], line_height), (0, line_height), 255, 1)
-    line = cv2.bitwise_and(thresholded_image, thresholded_image, mask=line.astype(np.uint8))
+    # Create a copy of the thresholded image to draw the line
+    image_with_line = thresholded_image.copy()
+    cv2.line(image_with_line, (thresholded_image.shape[1], line_height), (0, line_height), 255, 1)
+
+    # Create the line mask
+    line_mask = np.zeros(thresholded_image.shape, dtype=np.uint8)
+    cv2.line(line_mask, (thresholded_image.shape[1], line_height), (0, line_height), 255, 1)
+
+    # Perform bitwise AND to get the line on the thresholded image
+    line = cv2.bitwise_and(thresholded_image, thresholded_image, mask=line_mask)
 
     contours, _ = cv2.findContours(line.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     fingers = 0
@@ -119,6 +133,7 @@ def count_fingers(thresholded_image):
             fingers += 1
         
     return fingers
+
 
 def most_frequent(input_list):
     dict = {}
@@ -132,10 +147,40 @@ def most_frequent(input_list):
 
     return most_freq
 
+def finger_consistency(hand, fingers, duration = 2):
+    current_time = time.time()
+    
+    if hand.last_finger_count != fingers:
+        hand.last_finger_count = fingers
+        hand.finger_count_start_time = current_time
+    elif current_time - hand.finger_count_start_time >= duration:
+        perform_task(fingers)
+        hand.finger_count_start_time = current_time
+        hand.last_finger_count = None
+
+
 def perform_task(fingers):
-    if fingers == 1:  # Pointing gesture
+
+    if fingers == 0:
+        time.sleep(0.2)
+        print("Opening Canvas...")
+        webbrowser.open("https://canvas.txstate.edu/")
+        time.sleep(3)
+        print("available for the next task!")
+
+    elif fingers == 1:
+        time.sleep(0.2)  # Pointing gesture
         print("Performing task for pointing gesture: Opening ChatGPT")
-        webbrowser.open("https://chat.openai.com/")
+        webbrowser.open("https://chatgpt.com/")
+        time.sleep(3)
+        print("available for the next task!")
+
+    elif fingers == 2:
+        time.sleep(0.2)
+        print("Opening Outlook...")
+        webbrowser.open("https://outlook.office.com/mail/")
+        time.sleep(3)
+        print("available for the next task!")
 
 def main():
     global frames_elapsed
@@ -162,7 +207,7 @@ def main():
             print("Error: Could not read frame")
             break
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_rgb = frame #cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         resized_frame = cv2.resize(frame_rgb, (640, 480))
         resized_frame = cv2.flip(resized_frame, 1)
         region = get_region(resized_frame, region_top, region_bottom, region_left, region_right)
